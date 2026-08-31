@@ -376,6 +376,14 @@ describe.
 
 Toolchain: GCC 15.1.0 (UCRT64), CMake 4.4.3, Ninja 1.13.2.
 
+Everything below was measured on that toolchain, and it is a Windows one —
+MinGW-w64 with winpthreads. I did not have a Linux machine available, so the
+Linux build is reasoned about rather than run: the code is plain POSIX with no
+platform-specific calls in it, and `find_package(Threads REQUIRED)` went into
+CMakeLists precisely so the thread library is linked on purpose there instead
+of by accident. I would rather flag that than let the numbers below imply a
+platform I never tested on.
+
 ```
 cmake -S . -B build
 cmake --build build --verbose
