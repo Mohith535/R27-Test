@@ -193,10 +193,8 @@ Four things fell straight out of the numbers:
    time.
 
 The one thing I could not read off the numbers was how the wheel limit should
-work when the controller asks for more than the wheels can give — scale both
-wheels by the same factor, or clamp each one on its own? At full turn the
-commanded right wheel is about 11.7 rad/s against a limit of 10, so this is not
-a corner case, it happens on most rows.
+behave when the controller asks for more than the wheels can give: scale both
+wheels by the same factor, or clamp each one on its own?
 
 Rather than pick one and hope, I wrote a throwaway program that ran the
 simulator over 384 combinations of the choices I was unsure about — forward
@@ -208,6 +206,20 @@ all 40 expected rows.
 Exactly one combination scored 40/40. That is the controller in `src/drive.c`.
 (The search program was scaffolding and is not in the repo; the assertion it was
 checking is, in the sense that the four result files have to match.)
+
+The wheel-limit question mattered for that search even though it turned out
+not to matter for the answer. Candidates that drive at full speed while they turn do blow through the
+limit — I measured the constant-speed candidate peaking at 11.80 rad/s against
+a limit of 10.0, clamping on 143228 steps — and the two limiting policies send
+those candidates down visibly different paths, so the search could not ignore
+the question. The controller that actually matched never gets near the limit,
+because gating the forward speed by `cos(heading error)` means it is barely
+driving forward at the moment it is turning hardest: measured across all 40
+drives its peak commanded wheel velocity is **7.4547 rad/s** and the limiter
+clamps on **zero** steps. So in the final code the limiter is a safety net
+rather than something these testcases exercise, and I kept proportional scaling
+because independent clamping would change the ratio between the wheels, which
+is the turn radius.
 
 The tie-break deserves a note, because it is the only place I knowingly did not
 reuse a provided helper. Testcase 2 rows 2 and 4 are targets due *west*, and
@@ -362,7 +374,7 @@ describe.
 
 ## Verification — Task 4
 
-Toolchain: GCC 15.1.0 (UCRT64), CMake 3.20+ with Ninja.
+Toolchain: GCC 15.1.0 (UCRT64), CMake 4.4.3, Ninja 1.13.2.
 
 ```
 cmake -S . -B build
@@ -402,7 +414,12 @@ What I actually checked, and what it said:
    the zero-restore step from the decoder: **1068 checks fail**. Putting the
    original `src_byte == 0xFF` back into the encoder: **1379 checks fail**.
 
-6. **Odd inputs do not hang it.** Ran the pipeline against input files of 0, 1,
+6. **The wheel limiter was measured, not assumed.** Instrumented the controller
+   and drove all 40 targets: peak commanded wheel velocity 7.4547 rad/s against
+   a 10.0 limit, with the limiter clamping on zero steps. It is there for
+   safety, and I would rather say that than imply the testcases prove it works.
+
+7. **Odd inputs do not hang it.** Ran the pipeline against input files of 0, 1,
    3, 25 and 120 lines. Every one terminated and wrote exactly as many rows as
    the file had; the 120-line run also takes the queue indices past the
    50-element capacity, which exercises the wrap-around.
