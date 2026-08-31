@@ -49,3 +49,20 @@ target_link_libraries(
   PRIVATE
   r27
 )
+
+enable_testing()
+
+# `ctest --test-dir build` checks both halves of the task: that the framing
+# round-trips, and that the pipeline reproduces the reference output exactly.
+add_test(
+  NAME framing
+  COMMAND en_dc_test
+)
+
+add_test(
+  NAME pipeline
+  COMMAND ${CMAKE_COMMAND}
+          -DEXE=$<TARGET_FILE:queue_test>
+          -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_pipeline_test.cmake
+)

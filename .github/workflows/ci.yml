@@ -1,0 +1,88 @@
+# Builds and checks the project on Linux on every push.
+#
+# I developed this on Windows (MinGW-w64/winpthreads) and the task is POSIX, so
+# rather than assert that it "should" build on Linux I had CI prove it. The
+# strict job also holds the code to -Werror under four warning sets, so a
+# warning cannot quietly creep back in.
+
+name: build and check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-check:
+    name: ${{ matrix.cc }} on ubuntu-latest
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          ${{ matrix.cc }} --version
+          cmake --version
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_C_COMPILER=${{ matrix.cc }}
+
+      - name: Build
+        run: cmake --build build --verbose
+
+      - name: Check
+        # framing = the codec round-trip suite
+        # pipeline = runs the rover pipeline and diffs all four result files
+        #            against the reference output the repo ships
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Confirm the results match byte for byte
+        run: |
+          for i in 1 2 3 4; do
+            cmp "result/result$i.txt" "result/expected_result$i.txt"
+            echo "result$i.txt == expected_result$i.txt"
+          done
+
+  strict-warnings:
+    name: -Werror
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure with warnings as errors
+        run: >
+          cmake -S . -B build
+          -DCMAKE_C_FLAGS="-Wall -Wextra -Wshadow -Wconversion -Werror"
+
+      - name: Build
+        run: cmake --build build
+
+  repeat-run:
+    name: 20 consecutive runs (race check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build
+          cmake --build build
+
+      - name: Run the pipeline 20 times and require identical output each time
+        # A threading bug that shows up one run in ten passes a single run
+        # happily. This is the check that would catch it.
+        run: |
+          for run in $(seq 1 20); do
+            rm -f result/result?.txt
+            ./build/queue_test > /dev/null
+            for i in 1 2 3 4; do
+              cmp "result/result$i.txt" "result/expected_result$i.txt" \
+                || { echo "run $run: testcase $i differed"; exit 1; }
+            done
+          done
+          echo "20/20 runs produced byte-identical output"
