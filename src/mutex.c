@@ -29,15 +29,15 @@ int rwlock_init(ReadWrite_Lock *rw){
 /*
  * Reader Entry
  *
- * TODO:
- * - Implement the reader-side synchronization logic.
- * - Multiple readers should be able to access the shared resource
- *   concurrently.
- * - The first reader must ensure that a writer cannot access the
- *   resource while readers are active.
- * - Ensure reader_count is modified safely.
- * - Ensure all acquired synchronization primitives are released
- *   correctly.
+ * writer_count is used here as a turnstile rather than as a lock over the
+ * data: a reader passes straight through it, but a waiting writer holds it,
+ * so a steady stream of readers can no longer starve that writer. It is
+ * released again immediately, which is what lets readers overlap each other.
+ *
+ * reader_count guards the counter itself, and only the reader that takes the
+ * count from 0 to 1 acquires "resource" on behalf of the whole group. Later
+ * readers inherit that acquisition instead of taking the semaphore again,
+ * which would deadlock them against each other.
  */
 void reader_enter(ReadWrite_Lock *lock){
     pthread_mutex_lock(&lock->writer_count);
@@ -46,8 +46,10 @@ void reader_enter(ReadWrite_Lock *lock){
 
     lock->reader++;
 
-    if (lock->reader != 1) {
-        // TODO: Complete reader entry logic
+    if (lock->reader == 1) {
+        /* First reader in: shut writers out for as long as any reader is
+         * active. reader_exit() releases this when the last one leaves. */
+        sem_wait(&lock->resource);
     }
 
     pthread_mutex_unlock(&lock->reader_count);
@@ -58,11 +60,10 @@ void reader_enter(ReadWrite_Lock *lock){
 /*
  * Reader Exit
  *
- * TODO:
- * - Implement the reader exit logic.
- * - Decrement the active reader count safely.
- * - Ensure the resource becomes available to writers when
- *   the last reader exits.
+ * The last reader out hands "resource" back, which is the only point at which
+ * a writer can be admitted. The decrement and the test have to happen under
+ * reader_count together, otherwise two readers can both observe zero and post
+ * the semaphore twice.
  */
 void reader_exit(ReadWrite_Lock *rw){
     pthread_mutex_lock(&rw->reader_count);
@@ -79,11 +80,13 @@ void reader_exit(ReadWrite_Lock *rw){
 /*
  * Writer Entry
  *
- * TODO:
- * - Ensure writers obtain exclusive access to the shared resource.
- * - Prevent writers from accessing the resource while readers
- *   are active.
- * - Ensure writer synchronization is handled correctly.
+ * Holding writer_count for the whole write both serialises writers against
+ * each other and blocks the reader turnstile, so readers queue up behind a
+ * writer instead of overtaking it. "resource" is then what actually waits for
+ * the readers already inside to drain.
+ *
+ * Both are taken in the same order as reader_enter() takes them
+ * (writer_count -> resource), so the two paths cannot deadlock.
  */
 void writer_enter(ReadWrite_Lock *lock){
     pthread_mutex_lock(&lock->writer_count);
@@ -93,9 +96,8 @@ void writer_enter(ReadWrite_Lock *lock){
 /*
  * Writer Exit
  *
- * TODO:
- * - Release the shared resource.
- * - Release any synchronization primitive acquired by writer_enter().
+ * Released in the reverse order of acquisition: the resource first, then the
+ * turnstile that readers and other writers are queued on.
  */
 void writer_exit(ReadWrite_Lock *lock){
     sem_post(&lock->resource);

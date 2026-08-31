@@ -8,6 +8,7 @@
 #include <stddef.h>
 
 #define max_size 256
+#define QUEUE_CAPACITY 50
 /*Incoming message struct 
  * data -> the data sent 
  * length -> the size of the data sent 
@@ -23,7 +24,7 @@ typedef struct{
 }Shared_Buffer;
 
 typedef struct{
-  Message buffer[50];
+  Message buffer[QUEUE_CAPACITY];
   int head;
   int tail;
   int current;
